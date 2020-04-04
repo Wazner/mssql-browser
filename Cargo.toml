@@ -1,9 +1,21 @@
 [package]
 name = "mssql-browser"
 version = "0.1.0"
-authors = ["jan"]
+authors = ["Wazner"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "0.2.11", features = ["io-util", "udp"] }
-futures = "0.3.3"
+tokio = { version = "0.2", features = ["io-util", "udp"], optional = true }
+async-std = { version = "1.5", optional = true }
+futures = "0.3"
+async-trait = "0.1.29"
+
+[dev-dependencies]
+tokio = { version = "0.2", features = ["macros"] }
+proc-macro2 = "1.0.10"
+
+[features]
+default = []
+
+[package.metadata.docs.rs]
+all-features = true

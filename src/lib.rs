@@ -1,5 +1,8 @@
-use tokio::net::UdpSocket;
 use std::net::{ IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr };
+
+mod error;
+mod socket;
+pub use error::*;
 
 /// Maximum length of an instance name
 pub const MAX_INSTANCE_NAME_LEN: usize = 32;
@@ -21,158 +24,6 @@ const CLNT_UCAST_DAC: u8 = 0x0F;
 
 /// The server responds to all client requests with an SVR_RESP. 
 const SVR_RESP: u8 = 0x05;
-
-/// An error that can be returned from the different browser operations
-#[derive(Debug)]
-pub enum BrowserError {
-    /// The underlying `tokio::net::UdpSocket` failed to bind.
-    BindFailed(tokio::io::Error),
-
-    /// Enabling the broadcast option on the `tokio::net::UdpSocket` failed.
-    SetBroadcastFailed(tokio::io::Error),
-
-    /// Sending the request datagram failed.
-    SendFailed(tokio::io::Error),
-
-    /// Locking the `tokio::net::UdpSocket` to a specific endpoint via `tokio::net::UdpSocket::connect` failed.
-    ConnectFailed(SocketAddr, tokio::io::Error),
-
-    /// Receiving a datagram failed.
-    ReceiveFailed(tokio::io::Error),
-
-    /// The given instance name is too long.
-    InstanceNameTooLong,
-
-    /// The server send back an invalid response.
-    ProtocolError(BrowserProtocolError)
-}
-
-/// Received an unexpected response from the server
-#[derive(Debug)]
-pub enum BrowserProtocolError {
-    /// An unexpected token was received from the server
-    UnexpectedToken {
-        /// The token that was expected at this location
-        expected: BrowserProtocolToken,
-
-        /// The token that was found
-        found: BrowserProtocolToken
-    },
-
-    /// The length of the datagram does not match the length
-    /// specified in the packet header.
-    LengthMismatch {
-        /// The size, in bytes, of the datagram
-        datagram: usize,
-
-        /// The size, in bytes, specified in the packet header
-        header: usize
-    },
-
-    /// Unexpected MBCS string encoding found in the received message
-    InvalidUtf8(std::str::Utf8Error),
-
-    /// There was extraneous data after the parsed message
-    ExtraneousData(Vec<u8>)
-}
-
-impl std::fmt::Display for BrowserProtocolError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use BrowserProtocolError::*;
-
-        match self {
-            UnexpectedToken { expected, found } 
-                => write!(f, "expected {}, but found {}", expected, found),
-            LengthMismatch { datagram, header }
-                => write!(f, "mismatch between datagram size {} bytes and size specified in header {} bytes", datagram, header),
-            InvalidUtf8(err)
-                => err.fmt(f),
-            ExtraneousData(data)
-                => write!(f, "{} unexpected trailing bytes", data.len())
-        }
-    }
-}
-
-/// The value that was expected.
-#[derive(Debug)]
-pub enum BrowserProtocolToken {
-    /// End of the datagram
-    EndOfMessage,
-
-    /// A literal string
-    Literal(String),
-
-    /// The message identifier specified in the header
-    MessageIdentifier(u8),
-
-    /// The message length specified in the header
-    MessageLength,
-
-    DacVersion(u8),
-    DacPort,
-    Identifier(BrowserProtocolField),
-    ValueOf(BrowserProtocolField),
-    TcpPort,
-    ViaParameters,
-    EndpointIdentifierOrSemicolon
-}
-
-impl std::fmt::Display for BrowserProtocolToken {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use BrowserProtocolToken::*;
-
-        match self {
-            EndOfMessage => write!(f, "end of message"),
-            Literal(s) => write!(f, "'{}'", s),
-            MessageIdentifier(v) => write!(f, "message identifier {:#X}", v),
-            MessageLength => write!(f, "message length"),
-            DacVersion(v) => write!(f, "dac version {}", v),
-            DacPort => write!(f, "dac port"),
-            Identifier(field) => write!(f, "identifier for field {:?}", field),
-            ValueOf(field) => write!(f, "value for field {:?}", field),
-            TcpPort => write!(f, "tcp port"),
-            ViaParameters => write!(f, "via parameters"),
-            EndpointIdentifierOrSemicolon => write!(f, "endpoint identifier or semicolon")
-        }
-    }  
-}
-
-/// Different fields found in a browser response
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum BrowserProtocolField {
-    ServerName,
-    InstanceName,
-    IsClustered,
-    Version,
-
-    NamedPipeName,
-    TcpPort,
-    ViaMachineName,
-    RpcComputerName,
-    SpxServiceName,
-    AppleTalkObjectName,
-    BvItemName,
-    BvGroupName,
-    BvOrgName
-}
-
-impl std::fmt::Display for BrowserError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use BrowserError::*;
-
-        match self {
-            BindFailed(err) => write!(f, "bind failed: {}", err),
-            SetBroadcastFailed(err) => write!(f, "enabling broadcast option failed: {}", err),
-            SendFailed(err) => write!(f, "sending of datagram failed: {}", err),
-            ConnectFailed(endpoint, err) => write!(f, "connect to endpoint '{}' failed: {}", endpoint, err),
-            ReceiveFailed(err) => write!(f, "receiving of datagram failed: {}", err),
-            InstanceNameTooLong => write!(f, "specified instance name is longer than {} bytes", MAX_INSTANCE_NAME_LEN),
-            ProtocolError(e) => write!(f, "protocol error: {}", e)
-        }
-    }
-}
-
-impl std::error::Error for BrowserError {}
 
 /// Information send in a browser protocol response
 /// See https://docs.microsoft.com/en-us/openspecs/windows_protocols/mc-sqlr/2e1560c9-5097-4023-9f5e-72b9ff1ec3b1
@@ -214,7 +65,7 @@ pub struct NamedPipeInfo {
 #[derive(Debug)]
 pub struct TcpInfo {
     /// A text string that represents the decimal value of the TCP port that is used to connect to the requested server instance.
-    /// TCP_PORT SHOULD be a valid TCP port as specified in [RFC793]
+    /// TCP_PORT SHOULD be a valid TCP port as specified in \[RFC793\]
     pub port: u16
 }
 
@@ -232,11 +83,11 @@ pub struct ViaInfo {
 #[derive(Debug)]
 pub struct ViaAddress {
     /// A text string that represents the VIA network interface card (NIC) identifier. 
-    /// VIANIC SHOULD be a valid VIA Adapter NIC number [VIA2002].
+    /// VIANIC SHOULD be a valid VIA Adapter NIC number \[VIA2002\].
     pub nic: String,
 
     /// A text string that represents the decimal value of the VIA NIC's port. 
-    /// VIAPORT SHOULD be a valid VIA Adapter port number [VIA2002].
+    /// VIAPORT SHOULD be a valid VIA Adapter port number \[VIA2002\].
     pub port: String
 }
 
@@ -275,8 +126,14 @@ pub struct BvInfo {
     pub org_name: String
 }
 
+/// Contains information about the DAC endpoint of an instance
+#[derive(Debug)]
+pub struct DacInfo {
+    port: u16
+}
+
 /// Supplies instance information as they arrive
-pub struct AsyncInstanceIterator {
+pub struct AsyncInstanceIterator<UdpSocket: socket::UdpSocket> {
     socket: UdpSocket,
     buffer: Vec<u8>,
 
@@ -284,10 +141,10 @@ pub struct AsyncInstanceIterator {
     current_offset: usize
 }
 
-impl AsyncInstanceIterator {
+impl<UdpSocket: socket::UdpSocket> AsyncInstanceIterator<UdpSocket> {
     /// Gets the next received instance information. You can call this method multiple
     /// times to receive information about multiple instances until it returns Ok(None).
-    pub async fn next(&mut self) -> Result<Option<InstanceInfo>, BrowserError> {
+    pub async fn next(&mut self) -> Result<Option<InstanceInfo>, BrowserError<UdpSocket::Error>> {
         loop {
             if self.current_offset >= self.buffer.len() {
                 // Need to receive a new packet
@@ -340,40 +197,6 @@ impl AsyncInstanceIterator {
     }
 }
 
-/// Discovers any SQL Server instances running on hosts reached by
-/// the given multicast address.
-/// 
-/// # Arguments
-/// * `multicast_addr` - A multicast address to which to broadcast the browse datagram.
-///                      This can be the Ipv4 BROADCAST address, or a Ipv6 multicast address.
-pub async fn browse(multicast_addr: IpAddr) -> Result<AsyncInstanceIterator, BrowserError> {
-    let local_addr = if multicast_addr.is_ipv4() {
-        IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-    }
-    else {
-        IpAddr::V6(Ipv6Addr::UNSPECIFIED)
-    };
-
-    let bind_to = SocketAddr::new(local_addr, 0);
-    let mut socket = UdpSocket::bind(&bind_to).await
-        .map_err(BrowserError::BindFailed)?;
-
-    socket.set_broadcast(true)
-        .map_err(BrowserError::SetBroadcastFailed)?;
-
-    let buffer = [CLNT_BCAST_EX]; 
-    let remote = SocketAddr::new(multicast_addr, 1434);
-    socket.send_to(&buffer, &remote).await
-        .map_err(BrowserError::SendFailed)?;
-
-    Ok(AsyncInstanceIterator {
-        socket: socket,
-        buffer: Vec::new(),
-        current_remote_addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        current_offset: 0
-    })
-}
-
 /// Iterates over the instances returned by a single host
 pub struct InstanceIterator {
     remote_addr: IpAddr,
@@ -384,7 +207,7 @@ pub struct InstanceIterator {
 impl InstanceIterator {
     /// Gets the next received instance information. You can call this method multiple
     /// times to receive information about multiple instances until it returns Ok(None).
-    pub fn next(&mut self) -> Result<Option<InstanceInfo>, BrowserError> {
+    pub fn next(&mut self) -> Result<Option<InstanceInfo>, BrowserError<std::convert::Infallible>> {
         if self.offset == self.buffer.len() {
             return Ok(None);
         }
@@ -399,79 +222,46 @@ impl InstanceIterator {
     }
 }
 
+/// Discovers any SQL Server instances running on hosts reached by
+/// the given multicast address.
+/// 
+/// # Arguments
+/// * `multicast_addr` - A multicast address to which to broadcast the browse datagram.
+///                      This can be the Ipv4 BROADCAST address, or a Ipv6 multicast address.
+#[cfg(feature = "tokio")]
+pub async fn browse(multicast_addr: IpAddr) -> Result<AsyncInstanceIterator<tokio::net::UdpSocket>, BrowserError<tokio::io::Error>> {
+    custom_socket::browse::<tokio::net::UdpSocket>(multicast_addr).await
+}
+
+/// Discovers any SQL Server instances running on hosts reached by
+/// the given multicast address.
+/// 
+/// # Arguments
+/// * `multicast_addr` - A multicast address to which to broadcast the browse datagram.
+///                      This can be the Ipv4 BROADCAST address, or a Ipv6 multicast address.
+#[cfg(feature = "async_std")]
+pub async fn browse(multicast_addr: IpAddr) -> Result<AsyncInstanceIterator<async_std::net::UdpSocket>, BrowserError<async_std::io::Error>> {
+    custom_socket::browse::<async_std::net::UdpSocket>(multicast_addr).await
+}
+
 /// Discovers any SQL Server instances running on the given host
 /// 
 /// # Arguments
 /// * `remote_addr` - The address of the remote host of which to retrieve information
 ///                   about the instances running on it.
-pub async fn browse_host(remote_addr: IpAddr) -> Result<InstanceIterator, BrowserError> {
-    let local_addr = if remote_addr.is_ipv4() {
-        IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-    }
-    else {
-        IpAddr::V6(Ipv6Addr::UNSPECIFIED)
-    };
+#[cfg(feature = "tokio")]
+pub async fn browse_host(remote_addr: IpAddr) -> Result<InstanceIterator, BrowserError<tokio::io::Error>> {
+    custom_socket::browse_host::<tokio::net::UdpSocket>(remote_addr).await
+}
 
-    let bind_to = SocketAddr::new(local_addr, 0);
-    let mut socket = UdpSocket::bind(&bind_to).await
-        .map_err(BrowserError::BindFailed)?;
-
-    let remote = SocketAddr::new(remote_addr, 1434);
-    socket.connect(&remote).await
-        .map_err(|e| BrowserError::ConnectFailed(remote, e))?;
-
-    let buffer = [CLNT_UCAST_EX];
-    socket.send_to(&buffer, &remote).await
-        .map_err(BrowserError::SendFailed)?;
-
-    let mut buffer = Vec::with_capacity(65535 + 3);
-    
-    buffer.resize_with(buffer.capacity(), Default::default);
-
-    let bytes_received = socket.recv(&mut buffer).await
-        .map_err(BrowserError::ReceiveFailed)?;
-
-    if bytes_received < 1 {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
-            found: BrowserProtocolToken::EndOfMessage   
-        }));
-    }
-
-    if buffer[0] != SVR_RESP {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
-            found: BrowserProtocolToken::MessageIdentifier(buffer[0])
-        }));
-    }
-
-    if bytes_received < 3 {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::MessageLength,
-            found: BrowserProtocolToken::EndOfMessage
-        }));
-    }
-
-    let resp_data_len = u16::from_le_bytes([buffer[1], buffer[2]]);
-    if resp_data_len as usize != bytes_received - 3 {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::LengthMismatch {
-            datagram: bytes_received,
-            header: (resp_data_len + 3) as usize
-        }));
-    }
-
-    buffer.truncate(bytes_received);
-
-    // Validate that the buffer is valid utf-8
-    // TODO: Decode mbcs string
-    std::str::from_utf8(&buffer[3..])
-        .map_err(|e| BrowserError::ProtocolError(BrowserProtocolError::InvalidUtf8(e)))?;
-
-    Ok(InstanceIterator {
-        remote_addr,
-        buffer,
-        offset: 3
-    })
+/// Discovers any SQL Server instances running on the given host
+/// 
+/// # Arguments
+/// * `remote_addr` - The address of the remote host of which to retrieve information
+///                   about the instances running on it.
+#[cfg(feature = "async_std")]
+pub async fn browse_host(remote_addr: IpAddr) -> Result<InstanceIterator, BrowserError<async_std::io::Error>> {
+    custom_socket::browse_host::<async_std::net::UdpSocket>(remote_addr).await
 }
 
 /// Gets information about the given instance.
@@ -479,173 +269,328 @@ pub async fn browse_host(remote_addr: IpAddr) -> Result<InstanceIterator, Browse
 /// # Arguments
 /// * `remote_addr` - The address of the remote host on which the instance is running.
 /// * `instance_name` - The name of the instance, must be less than `MAX_INSTANCE_NAME_LEN` characters.
-pub async fn browse_instance(remote_addr: IpAddr, instance_name: &str) -> Result<InstanceInfo, BrowserError> {
-    if instance_name.len() > MAX_INSTANCE_NAME_LEN {
-        return Err(BrowserError::InstanceNameTooLong);
-    }
-
-    let local_addr = if remote_addr.is_ipv4() {
-        IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-    }
-    else {
-        IpAddr::V6(Ipv6Addr::UNSPECIFIED)
-    };
-
-    let bind_to = SocketAddr::new(local_addr, 0);
-    let mut socket = UdpSocket::bind(&bind_to).await
-        .map_err(BrowserError::BindFailed)?;
-
-    let remote = SocketAddr::new(remote_addr, 1434);
-    socket.connect(&remote).await
-        .map_err(|e| BrowserError::ConnectFailed(remote, e))?;
-
-    let mut buffer = [0u8; 1 + MAX_INSTANCE_NAME_LEN + 1];
-    buffer[0] = CLNT_UCAST_INST;
-    buffer[1..(1+instance_name.len())].copy_from_slice(instance_name.as_bytes()); // TODO: Encode as mbcs string
-    let buffer_len = 2 + instance_name.len();
-    socket.send_to(&buffer[0..buffer_len], &remote).await
-        .map_err(BrowserError::SendFailed)?;
-
-    let mut buffer = [0u8; 3 + 1024];
-
-    let bytes_received = socket.recv(&mut buffer).await
-        .map_err(BrowserError::ReceiveFailed)?;
-
-    if bytes_received < 1 {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
-            found: BrowserProtocolToken::EndOfMessage   
-        }));
-    }
-
-    if buffer[0] != SVR_RESP {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
-            found: BrowserProtocolToken::MessageIdentifier(buffer[0])   
-        }));
-    }
-
-    if bytes_received < 3 {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::MessageLength,
-            found: BrowserProtocolToken::EndOfMessage
-        }));
-    }
-
-    let resp_data_len = u16::from_le_bytes([buffer[1], buffer[2]]);
-    if resp_data_len as usize != bytes_received - 3 {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::LengthMismatch {
-            datagram: bytes_received,
-            header: (resp_data_len + 3) as usize
-        }));
-    }
-
-    // TODO: Decode mbcs string
-    let as_str = std::str::from_utf8(&buffer[3..bytes_received]).unwrap();
-    let (instance, consumed) = parse_instance_info(remote_addr, &as_str)
-        .map_err(|e| BrowserError::ProtocolError(e))?;
-    
-    if consumed != as_str.len() {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::ExtraneousData(Vec::from(&buffer[(3 + consumed)..]))));
-    }
-
-    Ok(instance)
+#[cfg(feature = "tokio")]
+pub async fn browse_instance(remote_addr: IpAddr, instance_name: &str) -> Result<InstanceInfo, BrowserError<tokio::io::Error>> {
+    custom_socket::browse_instance::<tokio::net::UdpSocket>(remote_addr, instance_name).await
 }
 
-/// Contains information about the DAC endpoint of an instance
-#[derive(Debug)]
-pub struct DacInfo {
-    port: u16
+/// Gets information about the given instance.
+/// 
+/// # Arguments
+/// * `remote_addr` - The address of the remote host on which the instance is running.
+/// * `instance_name` - The name of the instance, must be less than `MAX_INSTANCE_NAME_LEN` characters.
+#[cfg(feature = "async_std")]
+pub async fn browse_instance(remote_addr: IpAddr, instance_name: &str) -> Result<InstanceInfo, BrowserError<async_std::io::Error>> {
+    custom_socket::browse_instance::<async_std::net::UdpSocket>(remote_addr, instance_name).await
 }
 
 /// Gets DAC information about the given instance
-pub async fn browse_instance_dac(remote_addr: IpAddr, instance_name: &str) -> Result<DacInfo, BrowserError> {
-    const VERSION: u8 = 0x01;
+/// 
+/// # Arguments
+/// * `remote_addr` - The address of the remote host on which the instance is running.
+/// * `instance_name` - The name of the instance, must be less than `MAX_INSTANCE_NAME_LEN` characters.
+#[cfg(feature = "tokio")]
+pub async fn browse_instance_dac(remote_addr: IpAddr, instance_name: &str) -> Result<DacInfo, BrowserError<tokio::io::Error>> {
+    custom_socket::browse_instance_dac::<tokio::net::UdpSocket>(remote_addr, instance_name).await
+}
 
-    if instance_name.len() > MAX_INSTANCE_NAME_LEN {
-        return Err(BrowserError::InstanceNameTooLong);
+/// Gets DAC information about the given instance
+/// 
+/// # Arguments
+/// * `remote_addr` - The address of the remote host on which the instance is running.
+/// * `instance_name` - The name of the instance, must be less than `MAX_INSTANCE_NAME_LEN` characters.
+#[cfg(feature = "async_std")]
+pub async fn browse_instance_dac(remote_addr: IpAddr, instance_name: &str) -> Result<DacInfo, BrowserError<async_std::io::Error>> {
+    custom_socket::browse_instance_dac::<async_std::net::browse_instance>(remote_addr, instance_name).await
+}
+
+/// Implementations of the different browse methods that allow
+/// specifying a custom socket implementation.
+pub mod custom_socket {
+    pub use super::socket::*;
+    use super::*;
+
+    /// Discovers any SQL Server instances running on hosts reached by
+    /// the given multicast address.
+    /// 
+    /// # Arguments
+    /// * `multicast_addr` - A multicast address to which to broadcast the browse datagram.
+    ///                      This can be the Ipv4 BROADCAST address, or a Ipv6 multicast address.
+    pub async fn browse<UdpSocket: socket::UdpSocket>(multicast_addr: IpAddr) -> Result<AsyncInstanceIterator<UdpSocket>, BrowserError<UdpSocket::Error>> {
+        let local_addr = if multicast_addr.is_ipv4() {
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        }
+        else {
+            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+        };
+
+        let bind_to = SocketAddr::new(local_addr, 0);
+        let mut socket = UdpSocket::bind(&bind_to).await
+            .map_err(BrowserError::BindFailed)?;
+
+        socket.enable_broadcast()
+            .await
+            .map_err(BrowserError::SetBroadcastFailed)?;
+
+        let buffer = [CLNT_BCAST_EX]; 
+        let remote = SocketAddr::new(multicast_addr, 1434);
+        socket.send_to(&buffer, &remote).await
+            .map_err(|e| BrowserError::SendFailed(remote, e))?;
+
+        Ok(AsyncInstanceIterator {
+            socket: socket,
+            buffer: Vec::new(),
+            current_remote_addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            current_offset: 0
+        })
     }
 
-    let local_addr = if remote_addr.is_ipv4() {
-        IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-    }
-    else {
-        IpAddr::V6(Ipv6Addr::UNSPECIFIED)
-    };
+    /// Discovers any SQL Server instances running on the given host
+    /// 
+    /// # Arguments
+    /// * `remote_addr` - The address of the remote host of which to retrieve information
+    ///                   about the instances running on it.
+    pub async fn browse_host<UdpSocket: socket::UdpSocket>(remote_addr: IpAddr) -> Result<InstanceIterator, BrowserError<UdpSocket::Error>> {
+        let local_addr = if remote_addr.is_ipv4() {
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        }
+        else {
+            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+        };
 
-    let bind_to = SocketAddr::new(local_addr, 0);
-    let mut socket = UdpSocket::bind(&bind_to).await
-        .map_err(BrowserError::BindFailed)?;
+        let bind_to = SocketAddr::new(local_addr, 0);
+        let mut socket = UdpSocket::bind(&bind_to).await
+            .map_err(BrowserError::BindFailed)?;
 
-    let remote = SocketAddr::new(remote_addr, 1434);
-    socket.connect(&remote).await
-        .map_err(|e| BrowserError::ConnectFailed(remote, e))?;
-   
-    let mut buffer = [0u8; 2 + MAX_INSTANCE_NAME_LEN + 1];
-    buffer[0] = CLNT_UCAST_DAC;
-    buffer[1] = VERSION;
-    buffer[2..(2+instance_name.len())].copy_from_slice(instance_name.as_bytes()); // TODO: Encode as mbcs string
-    let buffer_len = 3 + instance_name.len();
-    socket.send(&buffer[0..buffer_len]).await
-        .map_err(BrowserError::SendFailed)?;
+        let remote = SocketAddr::new(remote_addr, 1434);
+        socket.connect(&remote).await
+            .map_err(|e| BrowserError::ConnectFailed(remote, e))?;
 
-    let mut buffer = [0u8; 6];
+        let buffer = [CLNT_UCAST_EX];
+        socket.send_to(&buffer, &remote).await
+            .map_err(|e| BrowserError::SendFailed(remote, e))?;
 
-    let bytes_received = socket.recv(&mut buffer).await
-        .map_err(BrowserError::ReceiveFailed)?;
+        let mut buffer = Vec::with_capacity(65535 + 3);
+        
+        buffer.resize_with(buffer.capacity(), Default::default);
 
-    if bytes_received < 1 {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
-            found: BrowserProtocolToken::EndOfMessage   
-        }));
-    }
+        let bytes_received = socket.recv(&mut buffer).await
+            .map_err(BrowserError::ReceiveFailed)?;
 
-    if buffer[0] != SVR_RESP {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
-            found: BrowserProtocolToken::MessageIdentifier(buffer[0])   
-        }));
-    }
+        if bytes_received < 1 {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
+                found: BrowserProtocolToken::EndOfMessage   
+            }));
+        }
 
-    if bytes_received < 3 {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::MessageLength,
-            found: BrowserProtocolToken::EndOfMessage
-        }));
-    }
+        if buffer[0] != SVR_RESP {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
+                found: BrowserProtocolToken::MessageIdentifier(buffer[0])
+            }));
+        }
 
-    let packet_size = u16::from_le_bytes([buffer[1], buffer[2]]) as usize;
-    if packet_size != buffer.len() {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::LengthMismatch {
-            datagram: bytes_received,
-            header: packet_size
-        }));
-    }
+        if bytes_received < 3 {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::MessageLength,
+                found: BrowserProtocolToken::EndOfMessage
+            }));
+        }
 
-    if bytes_received < 4 {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::DacVersion(VERSION),
-            found: BrowserProtocolToken::EndOfMessage
-        }));
-    }
+        let resp_data_len = u16::from_le_bytes([buffer[1], buffer[2]]);
+        if resp_data_len as usize != bytes_received - 3 {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::LengthMismatch {
+                datagram: bytes_received,
+                header: (resp_data_len + 3) as usize
+            }));
+        }
 
-    if buffer[3] != VERSION {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::DacVersion(VERSION),
-            found: BrowserProtocolToken::DacVersion(buffer[3])
-        }));
-    }
+        buffer.truncate(bytes_received);
 
-    if bytes_received < 6 {
-        return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::DacPort,
-            found: BrowserProtocolToken::EndOfMessage
-        }));
+        // Validate that the buffer is valid utf-8
+        // TODO: Decode mbcs string
+        std::str::from_utf8(&buffer[3..])
+            .map_err(|e| BrowserError::ProtocolError(BrowserProtocolError::InvalidUtf8(e)))?;
+
+        Ok(InstanceIterator {
+            remote_addr,
+            buffer,
+            offset: 3
+        })
     }
 
-    let port = u16::from_le_bytes([buffer[4], buffer[5]]);
-    return Ok(DacInfo { port });
+    /// Gets information about the given instance.
+    /// 
+    /// # Arguments
+    /// * `remote_addr` - The address of the remote host on which the instance is running.
+    /// * `instance_name` - The name of the instance, must be less than `MAX_INSTANCE_NAME_LEN` characters.
+    pub async fn browse_instance<UdpSocket: socket::UdpSocket>(remote_addr: IpAddr, instance_name: &str) -> Result<InstanceInfo, BrowserError<UdpSocket::Error>> {
+        if instance_name.len() > MAX_INSTANCE_NAME_LEN {
+            return Err(BrowserError::InstanceNameTooLong);
+        }
+
+        let local_addr = if remote_addr.is_ipv4() {
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        }
+        else {
+            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+        };
+
+        let bind_to = SocketAddr::new(local_addr, 0);
+        let mut socket = UdpSocket::bind(&bind_to).await
+            .map_err(BrowserError::BindFailed)?;
+
+        let remote = SocketAddr::new(remote_addr, 1434);
+        socket.connect(&remote).await
+            .map_err(|e| BrowserError::ConnectFailed(remote, e))?;
+
+        let mut buffer = [0u8; 1 + MAX_INSTANCE_NAME_LEN + 1];
+        buffer[0] = CLNT_UCAST_INST;
+        buffer[1..(1+instance_name.len())].copy_from_slice(instance_name.as_bytes()); // TODO: Encode as mbcs string
+        let buffer_len = 2 + instance_name.len();
+        socket.send_to(&buffer[0..buffer_len], &remote).await
+            .map_err(|e| BrowserError::SendFailed(remote, e))?;
+
+        let mut buffer = [0u8; 3 + 1024];
+
+        let bytes_received = socket.recv(&mut buffer).await
+            .map_err(BrowserError::ReceiveFailed)?;
+
+        if bytes_received < 1 {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
+                found: BrowserProtocolToken::EndOfMessage   
+            }));
+        }
+
+        if buffer[0] != SVR_RESP {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
+                found: BrowserProtocolToken::MessageIdentifier(buffer[0])   
+            }));
+        }
+
+        if bytes_received < 3 {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::MessageLength,
+                found: BrowserProtocolToken::EndOfMessage
+            }));
+        }
+
+        let resp_data_len = u16::from_le_bytes([buffer[1], buffer[2]]);
+        if resp_data_len as usize != bytes_received - 3 {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::LengthMismatch {
+                datagram: bytes_received,
+                header: (resp_data_len + 3) as usize
+            }));
+        }
+
+        // TODO: Decode mbcs string
+        let as_str = std::str::from_utf8(&buffer[3..bytes_received]).unwrap();
+        let (instance, consumed) = parse_instance_info(remote_addr, &as_str)
+            .map_err(|e| BrowserError::ProtocolError(e))?;
+        
+        if consumed != as_str.len() {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::ExtraneousData(Vec::from(&buffer[(3 + consumed)..]))));
+        }
+
+        Ok(instance)
+    }
+
+    /// Gets DAC information about the given instance
+    /// 
+    /// # Arguments
+    /// * `remote_addr` - The address of the remote host on which the instance is running.
+    /// * `instance_name` - The name of the instance, must be less than `MAX_INSTANCE_NAME_LEN` characters.
+    pub async fn browse_instance_dac<UdpSocket: socket::UdpSocket>(remote_addr: IpAddr, instance_name: &str) -> Result<DacInfo, BrowserError<UdpSocket::Error>> {
+        const VERSION: u8 = 0x01;
+
+        if instance_name.len() > MAX_INSTANCE_NAME_LEN {
+            return Err(BrowserError::InstanceNameTooLong);
+        }
+
+        let local_addr = if remote_addr.is_ipv4() {
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        }
+        else {
+            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+        };
+
+        let bind_to = SocketAddr::new(local_addr, 0);
+        let mut socket = UdpSocket::bind(&bind_to).await
+            .map_err(BrowserError::BindFailed)?;
+
+        let remote = SocketAddr::new(remote_addr, 1434);
+        socket.connect(&remote).await
+            .map_err(|e| BrowserError::ConnectFailed(remote, e))?;
+    
+        let mut buffer = [0u8; 2 + MAX_INSTANCE_NAME_LEN + 1];
+        buffer[0] = CLNT_UCAST_DAC;
+        buffer[1] = VERSION;
+        buffer[2..(2+instance_name.len())].copy_from_slice(instance_name.as_bytes()); // TODO: Encode as mbcs string
+        let buffer_len = 3 + instance_name.len();
+        socket.send(&buffer[0..buffer_len]).await
+            .map_err(|e| BrowserError::SendFailed(remote, e))?;
+
+        let mut buffer = [0u8; 6];
+
+        let bytes_received = socket.recv(&mut buffer).await
+            .map_err(BrowserError::ReceiveFailed)?;
+
+        if bytes_received < 1 {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
+                found: BrowserProtocolToken::EndOfMessage   
+            }));
+        }
+
+        if buffer[0] != SVR_RESP {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::MessageIdentifier(SVR_RESP),
+                found: BrowserProtocolToken::MessageIdentifier(buffer[0])   
+            }));
+        }
+
+        if bytes_received < 3 {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::MessageLength,
+                found: BrowserProtocolToken::EndOfMessage
+            }));
+        }
+
+        let packet_size = u16::from_le_bytes([buffer[1], buffer[2]]) as usize;
+        if packet_size != buffer.len() {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::LengthMismatch {
+                datagram: bytes_received,
+                header: packet_size
+            }));
+        }
+
+        if bytes_received < 4 {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::DacVersion(VERSION),
+                found: BrowserProtocolToken::EndOfMessage
+            }));
+        }
+
+        if buffer[3] != VERSION {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::DacVersion(VERSION),
+                found: BrowserProtocolToken::DacVersion(buffer[3])
+            }));
+        }
+
+        if bytes_received < 6 {
+            return Err(BrowserError::ProtocolError(BrowserProtocolError::UnexpectedToken {
+                expected: BrowserProtocolToken::DacPort,
+                found: BrowserProtocolToken::EndOfMessage
+            }));
+        }
+
+        let port = u16::from_le_bytes([buffer[4], buffer[5]]);
+        return Ok(DacInfo { port });
+    }
 }
 
 struct SplitIteratorWithPosition<'a> {
