@@ -1,8 +1,5 @@
-#![feature(pattern)]
-
 use tokio::net::UdpSocket;
 use std::net::{ IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr };
-use std::str::pattern::Searcher;
 
 /// Maximum length of an instance name
 pub const MAX_INSTANCE_NAME_LEN: usize = 32;
@@ -117,8 +114,7 @@ pub enum BrowserProtocolToken {
     ValueOf(BrowserProtocolField),
     TcpPort,
     ViaParameters,
-    EndpointIdentifierOrSemicolon,
-    FinalSemicolon
+    EndpointIdentifierOrSemicolon
 }
 
 impl std::fmt::Display for BrowserProtocolToken {
@@ -136,8 +132,7 @@ impl std::fmt::Display for BrowserProtocolToken {
             ValueOf(field) => write!(f, "value for field {:?}", field),
             TcpPort => write!(f, "tcp port"),
             ViaParameters => write!(f, "via parameters"),
-            EndpointIdentifierOrSemicolon => write!(f, "endpoint identifier or semicolon"),
-            FinalSemicolon => write!(f, "closing semicolon")
+            EndpointIdentifierOrSemicolon => write!(f, "endpoint identifier or semicolon")
         }
     }  
 }
@@ -653,15 +648,15 @@ pub async fn browse_instance_dac(remote_addr: IpAddr, instance_name: &str) -> Re
     return Ok(DacInfo { port });
 }
 
-struct SplitIteratorWithPosition<'a, P: std::str::pattern::Pattern<'a>> {
-    matcher: P::Searcher,
+struct SplitIteratorWithPosition<'a> {
+    inner: std::str::Split<'a, char>,
     position: usize
 }
 
-impl<'a, P: std::str::pattern::Pattern<'a>> SplitIteratorWithPosition<'a, P> {
-    fn new(haystack: &'a str, pattern: P) -> SplitIteratorWithPosition<'a, P> {
+impl<'a> SplitIteratorWithPosition<'a> {
+    fn new(inner: std::str::Split<'a, char>) -> SplitIteratorWithPosition<'a> {
         SplitIteratorWithPosition {
-            matcher: pattern.into_searcher(haystack),
+            inner: inner,
             position: 0
         }
     }
@@ -669,32 +664,18 @@ impl<'a, P: std::str::pattern::Pattern<'a>> SplitIteratorWithPosition<'a, P> {
     fn string_position(&self) -> usize {
         self.position
     }
-
-    fn get_end(&mut self) -> Option<&'a str> {
-        if self.position != self.matcher.haystack().len() {
-            let result = unsafe {
-                self.matcher.haystack().get_unchecked(self.position..)
-            };
-            self.position = self.matcher.haystack().len();
-            Some(result)
-        } else {
-            None
-        }
-    }
 }
 
-impl<'a, P: std::str::pattern::Pattern<'a>> Iterator for SplitIteratorWithPosition<'a, P> {
+impl<'a> Iterator for SplitIteratorWithPosition<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<&'a str> {
-        let haystack = self.matcher.haystack();
-        match self.matcher.next_match() {
-            Some((a, b)) => unsafe {
-                let elt = haystack.get_unchecked(self.position..a);
-                self.position = b;
-                Some(elt)
+        match self.inner.next() {
+            Some(x) => {
+                self.position += x.len() + 1;
+                Some(x)
             },
-            None => self.get_end(),
+            None => None
         }
     }
 }
@@ -728,7 +709,7 @@ fn parse_instance_info(addr: IpAddr, string: &str) -> Result<(InstanceInfo, usiz
             })
     }
 
-    let mut iterator = SplitIteratorWithPosition::new(string, ';');
+    let mut iterator = SplitIteratorWithPosition::new(string.split(';'));
 
     // Instance information
     expect_next(&mut iterator, "ServerName", BrowserProtocolField::ServerName)?;
@@ -843,14 +824,7 @@ fn parse_instance_info(addr: IpAddr, string: &str) -> Result<(InstanceInfo, usiz
         };
     }
 
-    // Must end with two semicolons
     let consumed = iterator.string_position();
-    if &string[(consumed - 1)..consumed] != ";" {
-        return Err(BrowserProtocolError::UnexpectedToken {
-            expected: BrowserProtocolToken::FinalSemicolon,
-            found: BrowserProtocolToken::Literal((&string[(consumed - 1)..consumed]).to_string())
-        });
-    }
 
     Ok((InstanceInfo {
         addr,
