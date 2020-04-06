@@ -25,7 +25,7 @@ use mssql_browser::{
 };
 ```
 
-- [API documentation](https://docs.rs/tantivy/0.1.0)
+- [API documentation](https://docs.rs/mssql-browser/0.1.0)
 
 ## Examples
 Below are a few different ways to get endpoint information of MSSQL server instances.
