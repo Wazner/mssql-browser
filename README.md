@@ -27,13 +27,15 @@ Check out the docs (TODO link) for a list of fields returned for each found inst
 
 ### Discover endpoint information of instances within network
 ```rust
+use std::net::{ IpAddr, Ipv4Addr };
+use std::error::Error;
 use mssql_browser::{ browse, BrowserError };
 
-async fn run() -> Result<(), BrowserError> {
+async fn run() -> Result<(), Box<dyn Error>> {
   let broadcast_addr = IpAddr::V4(Ipv4Addr::BROADCAST);
   let mut iterator = browse(broadcast_addr).await?;
   
-  while let Some(instance) = iterator.next().await? {
+  while let instance = iterator.next().await? {
     println!("Found instance {} on host {}.", instance.instance_name, instance.addr);
   }
   
@@ -43,13 +45,15 @@ async fn run() -> Result<(), BrowserError> {
 
 ### Discover endpoint information of instances on host
 ```rust
+use std::net::{ IpAddr, Ipv4Addr };
+use std::error::Error;
 use mssql_browser::{ browse_host, BrowserError };
 
-async fn run() -> Result<(), BrowserError> {
+async fn run() -> Result<(), Box<dyn Error>> {
   let host_addr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
   let mut iterator = browse_host(host_addr).await?;
   
-  while let Some(instance) = iterator.next() {
+  while let Some(instance) = iterator.next()? {
     println!("Found instance {}", instance.instance_name);
   }
   
@@ -59,14 +63,16 @@ async fn run() -> Result<(), BrowserError> {
 
 ### Discover endpoint information of specific instance
 ```rust
+use std::net::{ IpAddr, Ipv4Addr };
+use std::error::Error;
 use mssql_browser::{ browse_instance, BrowserError };
 
-async fn run() -> Result<(), BrowserError> {
+async fn run() -> Result<(), Box<dyn Error>> {
   let host_addr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
   let instance = browse_instance(host_addr, "MSSQLSERVER").await?;
   
   if let Some(tcp) = instance.tcp_info {
-    println!("Instance is available via TCP on port {}", np.port);
+    println!("Instance is available via TCP on port {}", tcp.port);
   }
  
   if let Some(np) = instance.np_info {
@@ -79,9 +85,11 @@ async fn run() -> Result<(), BrowserError> {
 
 ### Discover DAC endpoint information
 ```rust
+use std::net::{ IpAddr, Ipv4Addr };
+use std::error::Error;
 use mssql_browser::{ browse_instance_dac, BrowserError };
 
-async fn run() -> Result<(), BrowserError> {
+async fn run() -> Result<(), Box<dyn Error>> {
   let host_addr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
   let dac_info = browse_instance_dac(host_addr, "MSSQLSERVER").await?;
   
