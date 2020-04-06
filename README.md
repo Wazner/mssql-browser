@@ -1,6 +1,6 @@
 # mssql-browser &emsp; [![Latest Version]][crates.io]
 
-[Latest Version]: https://img.shields.io/crates/v/mssql-browser
+[Latest Version]: https://img.shields.io/crates/v/mssql-browser.svg
 [crates.io]: https://crates.io/crates/mssql-browser
 
 Rust implementation of the [SQL Server Resolution Protocol](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wpo/c67adffd-2740-435d-bda7-dc66fb13f1b7).
