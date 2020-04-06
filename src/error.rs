@@ -1,32 +1,61 @@
-use std::net::{ SocketAddr };
 use std::error::Error;
+use std::net::SocketAddr;
 
 /// An error that can be returned from the different browser operations
-#[derive(Debug)]
-pub enum BrowserError<SocketError: std::error::Error> {
+pub enum BrowserError<
+    #[cfg(any(feature = "tokio", feature = "async-std"))]
+    SFError: Error = <super::socket::DefaultSocketFactory as super::socket::UdpSocketFactory>::Error,
+    #[cfg(any(feature = "tokio", feature = "async-std"))]
+    SError: Error = <<super::socket::DefaultSocketFactory as super::socket::UdpSocketFactory>::Socket as super::socket::UdpSocket>::Error,
+    #[cfg(all(not(feature = "tokio"), not(feature = "async-std")))]
+    SFError: Error,
+    #[cfg(all(not(feature = "tokio"), not(feature = "async-std")))]
+    SError: Error
+> {
     /// The underlying `tokio::net::UdpSocket` failed to bind.
-    BindFailed(SocketError),
+    BindFailed(SFError),
 
     /// Enabling the broadcast option on the `tokio::net::UdpSocket` failed.
-    SetBroadcastFailed(SocketError),
+    SetBroadcastFailed(SError),
 
     /// Sending the request datagram failed.
-    SendFailed(SocketAddr, SocketError),
+    SendFailed(SocketAddr, SError),
 
     /// Locking the `tokio::net::UdpSocket` to a specific endpoint via `tokio::net::UdpSocket::connect` failed.
-    ConnectFailed(SocketAddr, SocketError),
+    ConnectFailed(SocketAddr, SError),
 
     /// Receiving a datagram failed.
-    ReceiveFailed(SocketError),
+    ReceiveFailed(SError),
 
     /// The given instance name is too long.
     InstanceNameTooLong,
 
     /// The server send back an invalid response.
-    ProtocolError(BrowserProtocolError)
+    ProtocolError(BrowserProtocolError),
 }
 
-impl<SocketError: Error> std::fmt::Display for BrowserError<SocketError> {
+// Can't automatically derive Debug because it uses conditional type parameters
+impl<SFError: std::error::Error, SError: Error> std::fmt::Debug 
+    for BrowserError<SFError, SError> 
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use BrowserError::*;
+
+        match self {
+            BindFailed(e) => write!(f, "BindFailed({:?})", e),
+            SetBroadcastFailed(e) => write!(f, "SetBroadcastFailed({:?})", e),
+            SendFailed(addr, e) => write!(f, "SendFailed({:?}, {:?})", addr, e),
+            ConnectFailed(addr, e) => write!(f, "ConnectFailed({:?}, {:?})", addr, e),
+            ReceiveFailed(e) => write!(f, "ReceiveFailed({:?})", e),
+            InstanceNameTooLong => write!(f, "InstanceNameTooLong"),
+            ProtocolError(e) => write!(f, "ProtocolError({:?})", e),
+        }
+    }
+}
+
+impl<SFError: std::error::Error, SError: Error> std::fmt::Display
+    for BrowserError<SFError, SError>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use BrowserError::*;
 
@@ -36,13 +65,17 @@ impl<SocketError: Error> std::fmt::Display for BrowserError<SocketError> {
             SendFailed(addr, err) => write!(f, "sending of datagram to '{}' failed: {}", addr, err),
             ConnectFailed(addr, err) => write!(f, "connect to '{}' failed: {}", addr, err),
             ReceiveFailed(err) => write!(f, "receiving of datagram failed: {}", err),
-            InstanceNameTooLong => write!(f, "specified instance name is longer than {} bytes", super::MAX_INSTANCE_NAME_LEN),
-            ProtocolError(e) => write!(f, "protocol error: {}", e)
+            InstanceNameTooLong => write!(
+                f,
+                "specified instance name is longer than {} bytes",
+                super::MAX_INSTANCE_NAME_LEN
+            ),
+            ProtocolError(e) => write!(f, "protocol error: {}", e),
         }
     }
 }
 
-impl<SocketError: Error> Error for BrowserError<SocketError> {
+impl<SFError: Error, SError: Error> Error for BrowserError<SFError, SError> {
     fn cause(&self) -> Option<&dyn Error> {
         use BrowserError::*;
 
@@ -53,7 +86,7 @@ impl<SocketError: Error> Error for BrowserError<SocketError> {
             ConnectFailed(_, err) => Some(err),
             ReceiveFailed(err) => Some(err),
             InstanceNameTooLong => None,
-            ProtocolError(err) => Some(err)
+            ProtocolError(err) => Some(err),
         }
     }
 }
@@ -67,7 +100,7 @@ pub enum BrowserProtocolError {
         expected: BrowserProtocolToken,
 
         /// The token that was found
-        found: BrowserProtocolToken
+        found: BrowserProtocolToken,
     },
 
     /// The length of the datagram does not match the length
@@ -77,14 +110,14 @@ pub enum BrowserProtocolError {
         datagram: usize,
 
         /// The size, in bytes, specified in the packet header
-        header: usize
+        header: usize,
     },
 
     /// Unexpected MBCS string encoding found in the received message
     InvalidUtf8(std::str::Utf8Error),
 
     /// There was extraneous data after the parsed message
-    ExtraneousData(Vec<u8>)
+    ExtraneousData(Vec<u8>),
 }
 
 impl std::fmt::Display for BrowserProtocolError {
@@ -92,19 +125,21 @@ impl std::fmt::Display for BrowserProtocolError {
         use BrowserProtocolError::*;
 
         match self {
-            UnexpectedToken { expected, found } 
-                => write!(f, "expected {}, but found {}", expected, found),
-            LengthMismatch { datagram, header }
-                => write!(f, "mismatch between datagram size {} bytes and size specified in header {} bytes", datagram, header),
-            InvalidUtf8(err)
-                => err.fmt(f),
-            ExtraneousData(data)
-                => write!(f, "{} unexpected trailing bytes", data.len())
+            UnexpectedToken { expected, found } => {
+                write!(f, "expected {}, but found {}", expected, found)
+            }
+            LengthMismatch { datagram, header } => write!(
+                f,
+                "mismatch between datagram size {} bytes and size specified in header {} bytes",
+                datagram, header
+            ),
+            InvalidUtf8(err) => err.fmt(f),
+            ExtraneousData(data) => write!(f, "{} unexpected trailing bytes", data.len()),
         }
     }
 }
 
-impl Error for BrowserProtocolError { }
+impl Error for BrowserProtocolError {}
 
 /// The value that was expected.
 #[derive(Debug)]
@@ -127,7 +162,7 @@ pub enum BrowserProtocolToken {
     ValueOf(BrowserProtocolField),
     TcpPort,
     ViaParameters,
-    EndpointIdentifierOrSemicolon
+    EndpointIdentifierOrSemicolon,
 }
 
 impl std::fmt::Display for BrowserProtocolToken {
@@ -145,9 +180,9 @@ impl std::fmt::Display for BrowserProtocolToken {
             ValueOf(field) => write!(f, "value for field {:?}", field),
             TcpPort => write!(f, "tcp port"),
             ViaParameters => write!(f, "via parameters"),
-            EndpointIdentifierOrSemicolon => write!(f, "endpoint identifier or semicolon")
+            EndpointIdentifierOrSemicolon => write!(f, "endpoint identifier or semicolon"),
         }
-    }  
+    }
 }
 
 /// Different fields found in a browser response
@@ -166,5 +201,5 @@ pub enum BrowserProtocolField {
     AppleTalkObjectName,
     BvItemName,
     BvGroupName,
-    BvOrgName
+    BvOrgName,
 }

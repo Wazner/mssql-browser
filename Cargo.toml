@@ -11,7 +11,7 @@ futures = "0.3"
 async-trait = "0.1.29"
 
 [dev-dependencies]
-tokio = { version = "0.2", features = ["macros"] }
+tokio = { version = "0.2", features = ["macros", "time"] }
 proc-macro2 = "1.0.10"
 
 [features]
@@ -19,3 +19,11 @@ default = []
 
 [package.metadata.docs.rs]
 all-features = true
+
+[[example]]
+name = "tokio"
+required-features = ["tokio"]
+
+[[example]]
+name = "async-std"
+required-features = ["async-std"]
