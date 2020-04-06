@@ -1,4 +1,8 @@
-# mssql-browser
+# mssql-browser &emsp; [![Latest Version]][crates.io]
+
+[Latest Version]: https://img.shields.io/crates/v/mssql-browser
+[crates.io]: https://crates.io/crates/mssql-browser
+
 Rust implementation of the [SQL Server Resolution Protocol](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wpo/c67adffd-2740-435d-bda7-dc66fb13f1b7).
 
 > The SQL Server Resolution Protocol enables finding endpoint information of MSSQL servers running in the current network.
@@ -20,6 +24,8 @@ use mssql_browser::{
   browse, browse_host, browse_instance, browse_instance_dac
 };
 ```
+
+- [API documentation](https://docs.rs/tantivy/0.1.0)
 
 ## Examples
 Below are a few different ways to get endpoint information of MSSQL server instances.

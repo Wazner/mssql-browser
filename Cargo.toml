@@ -1,8 +1,15 @@
 [package]
 name = "mssql-browser"
+description = "Rust implementation of the SQL Server Resolution Protocol"
 version = "0.1.0"
 authors = ["Wazner"]
 edition = "2018"
+repository = "https://github.com/Wazner/mssql-browser"
+homepage = "https://github.com/Wazner/mssql-browser"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["database", "mssql", "sql-server", "sql"]
+categories = ["database"]
 
 [dependencies]
 tokio = { version = "0.2", features = ["io-util", "udp"], optional = true }
