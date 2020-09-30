@@ -25,11 +25,11 @@ use mssql_browser::{
 };
 ```
 
-- [API documentation](https://docs.rs/mssql-browser/0.1.0)
+- [API documentation](https://docs.rs/mssql-browser)
 
 ## Examples
 Below are a few different ways to get endpoint information of MSSQL server instances.
-Check out the docs (TODO link) for a list of fields returned for each found instance.
+Check out the [docs](https://docs.rs/mssql-browser/*/mssql_browser/struct.InstanceInfo.html) for a list of fields returned for each found instance.
 
 ### Discover endpoint information of instances within network
 ```rust
