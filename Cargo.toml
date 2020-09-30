@@ -1,7 +1,7 @@
 [package]
 name = "mssql-browser"
 description = "Rust implementation of the SQL Server Resolution Protocol"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Wazner"]
 edition = "2018"
 repository = "https://github.com/Wazner/mssql-browser"
