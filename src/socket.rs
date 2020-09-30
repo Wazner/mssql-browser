@@ -74,27 +74,27 @@ impl UdpSocket for tokio::net::UdpSocket {
     type Error = tokio::io::Error;
 
     async fn enable_broadcast(&mut self) -> Result<(), Self::Error> {
-        self.set_broadcast(true)
+        Self::set_broadcast(self, true)
     }
 
     async fn connect(&mut self, addr: &SocketAddr) -> Result<(), Self::Error> {
-        self.connect(addr).await
+        Self::connect(self, addr).await
     }
 
     async fn send(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.send(buf).await
+        Self::send(self, buf).await
     }
 
     async fn send_to(&mut self, buf: &[u8], addr: &SocketAddr) -> Result<usize, Self::Error> {
-        self.send_to(buf, addr).await
+        Self::send_to(self, buf, addr).await
     }
 
     async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.recv(buf).await
+        Self::recv(self, buf).await
     }
 
     async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, SocketAddr), Self::Error> {
-        self.recv_from(buf).await
+        Self::recv_from(self, buf).await
     }
 }
 
@@ -125,29 +125,29 @@ impl UdpSocket for async_std::net::UdpSocket {
     type Error = async_std::io::Error;
 
     async fn enable_broadcast(&mut self) -> Result<(), Self::Error> {
-        self.set_broadcast(true)
+        Self::set_broadcast(self, true)
     }
 
     async fn connect(&mut self, addr: &SocketAddr) -> Result<(), Self::Error> {
-        self.connect(addr).await
+        Self::connect(self, addr).await
     }
 
     async fn send(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.send(buf).await
+        Self::send(self, buf).await
     }
 
     async fn send_to(&mut self, buf: &[u8], addr: &SocketAddr) -> Result<usize, Self::Error> {
-        self.send_to(buf, addr).await
+        Self::send_to(self, buf, addr).await
     }
 
     async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.recv(buf).await
+        Self::recv(self, buf).await
     }
 
     async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, SocketAddr), Self::Error> {
         use std::net::ToSocketAddrs;
 
-        match self.recv_from(buf).await {
+        match Self::recv_from(self, buf).await {
             Ok((recv_bytes, addr)) => {
                 Ok((recv_bytes, addr.to_socket_addrs().unwrap().next().unwrap()))
             }
